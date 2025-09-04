@@ -24,7 +24,7 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 		ListTablesSchema,
 		async () => {
 			try {
-				return await withDatabase((env as any).DATABASE_URL, async (db) => {
+				return await withDatabase((env as any).HYPERDRIVE?.connectionString ?? (env as any).DATABASE_URL, async (db) => {
 					// Single query to get all table and column information (using your working query)
 					const columns = await db.unsafe(`
 						SELECT 
@@ -97,7 +97,7 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 					);
 				}
 				
-				return await withDatabase((env as any).DATABASE_URL, async (db) => {
+				return await withDatabase((env as any).HYPERDRIVE?.connectionString ?? (env as any).DATABASE_URL, async (db) => {
 					const results = await db.unsafe(sql);
 					
 					return {
@@ -130,7 +130,7 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 						return createErrorResponse(`Invalid SQL statement: ${validation.error}`);
 					}
 					
-					return await withDatabase((env as any).DATABASE_URL, async (db) => {
+					return await withDatabase((env as any).HYPERDRIVE?.connectionString ?? (env as any).DATABASE_URL, async (db) => {
 						const results = await db.unsafe(sql);
 						
 						const isWrite = isWriteOperation(sql);
