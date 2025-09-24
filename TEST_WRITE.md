@@ -1,0 +1,1 @@
+Testing write permissions with GitHub Official MCP Server
