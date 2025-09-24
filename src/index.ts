@@ -4,7 +4,7 @@ import { McpAgent } from "agents/mcp";
 import { Props } from "./types";
 import { GitHubHandler } from "./auth/github-handler";
 import { closeDb } from "./database/connection";
-import { registerAllTools } from "./tools/register-tools";
+import { registerAllTools } from "./tools/index";
 
 export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	server = new McpServer({

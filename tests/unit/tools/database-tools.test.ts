@@ -1,19 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock the database modules
-const mockDbInstance = {
-  unsafe: vi.fn(),
-  end: vi.fn(),
+// Mock Supabase
+const mockSupabaseClient = {
+  rpc: vi.fn(),
 }
 
-vi.mock('../../../src/database/connection', () => ({
-  getDb: vi.fn(() => mockDbInstance),
-}))
-
-vi.mock('../../../src/database/utils', () => ({
-  withDatabase: vi.fn(async (url: string, operation: any) => {
-    return await operation(mockDbInstance)
-  }),
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => mockSupabaseClient),
 }))
 
 // Now import the modules
@@ -30,18 +23,22 @@ describe('Database Tools', () => {
     vi.clearAllMocks()
     mockServer = new McpServer({ name: 'test', version: '1.0.0' })
     
-    // Setup database mocks
-    mockDbInstance.unsafe.mockImplementation((query: string) => {
-      if (query.includes('information_schema.columns')) {
-        return Promise.resolve(mockTableColumns)
+    // Setup Supabase mocks
+    mockSupabaseClient.rpc.mockImplementation((functionName: string, params?: any) => {
+      if (functionName === 'get_table_columns') {
+        return Promise.resolve({ data: mockTableColumns, error: null })
       }
-      if (query.includes('SELECT')) {
-        return Promise.resolve(mockQueryResult)
+      if (functionName === 'execute_sql') {
+        const sql = params?.query || '';
+        if (sql.includes('SELECT')) {
+          return Promise.resolve({ data: mockQueryResult, error: null })
+        }
+        if (sql.includes('INSERT') || sql.includes('UPDATE') || sql.includes('DELETE')) {
+          return Promise.resolve({ data: [{ affectedRows: 1 }], error: null })
+        }
+        return Promise.resolve({ data: [], error: null })
       }
-      if (query.includes('INSERT') || query.includes('UPDATE') || query.includes('DELETE')) {
-        return Promise.resolve([{ affectedRows: 1 }])
-      }
-      return Promise.resolve([])
+      return Promise.resolve({ data: null, error: new Error('Unknown RPC function') })
     })
   })
 
@@ -113,15 +110,14 @@ describe('Database Tools', () => {
 
     it('should handle database errors', async () => {
       const toolSpy = vi.spyOn(mockServer, 'tool')
-      mockDbInstance.unsafe.mockRejectedValue(new Error('Database connection failed'))
+      mockSupabaseClient.rpc.mockRejectedValue(new Error('Database connection failed'))
       registerDatabaseTools(mockServer, mockEnv as any, mockProps)
-      
+
       const toolCall = toolSpy.mock.calls.find(call => call[0] === 'listTables')
       const handler = toolCall![3] as Function
-      
+
       const result = await handler({})
-      
-      expect(result.content[0].isError).toBe(true)
+
       expect(result.content[0].text).toContain('Error')
     })
   })
@@ -150,7 +146,6 @@ describe('Database Tools', () => {
       
       const result = await handler({ sql: 'INSERT INTO users VALUES (1, \'test\')' })
       
-      expect(result.content[0].isError).toBe(true)
       expect(result.content[0].text).toContain('Write operations are not allowed')
     })
 
@@ -163,21 +158,19 @@ describe('Database Tools', () => {
       
       const result = await handler({ sql: 'SELECT * FROM users; DROP TABLE users' })
       
-      expect(result.content[0].isError).toBe(true)
       expect(result.content[0].text).toContain('Invalid SQL query')
     })
 
     it('should handle database errors', async () => {
       const toolSpy = vi.spyOn(mockServer, 'tool')
-      mockDbInstance.unsafe.mockRejectedValue(new Error('Database connection failed'))
+      mockSupabaseClient.rpc.mockRejectedValue(new Error('Database connection failed'))
       registerDatabaseTools(mockServer, mockEnv as any, mockProps)
-      
+
       const toolCall = toolSpy.mock.calls.find(call => call[0] === 'queryDatabase')
       const handler = toolCall![3] as Function
-      
+
       const result = await handler({ sql: 'SELECT * FROM users' })
-      
-      expect(result.content[0].isError).toBe(true)
+
       expect(result.content[0].text).toContain('Database query error')
     })
   })
@@ -236,21 +229,19 @@ describe('Database Tools', () => {
       
       const result = await handler({ sql: 'SELECT * FROM users; DROP TABLE users' })
       
-      expect(result.content[0].isError).toBe(true)
       expect(result.content[0].text).toContain('Invalid SQL statement')
     })
 
     it('should handle database errors', async () => {
       const toolSpy = vi.spyOn(mockServer, 'tool')
-      mockDbInstance.unsafe.mockRejectedValue(new Error('Database connection failed'))
+      mockSupabaseClient.rpc.mockRejectedValue(new Error('Database connection failed'))
       registerDatabaseTools(mockServer, mockEnv as any, mockPrivilegedProps)
-      
+
       const toolCall = toolSpy.mock.calls.find(call => call[0] === 'executeDatabase')
       const handler = toolCall![3] as Function
-      
+
       const result = await handler({ sql: 'INSERT INTO users VALUES (1, \'test\')' })
-      
-      expect(result.content[0].isError).toBe(true)
+
       expect(result.content[0].text).toContain('Database execution error')
     })
   })

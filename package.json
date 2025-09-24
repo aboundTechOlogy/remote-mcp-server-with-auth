@@ -15,8 +15,9 @@
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.0.5",
-    "@modelcontextprotocol/sdk": "1.13.1",
+    "@modelcontextprotocol/sdk": "^1.18.1",
     "@sentry/cloudflare": "^9.16.0",
+    "@supabase/supabase-js": "^2.57.4",
     "agents": "^0.0.100",
     "hono": "^4.8.3",
     "just-pick": "^4.2.0",

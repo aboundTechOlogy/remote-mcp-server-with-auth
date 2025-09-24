@@ -43,5 +43,7 @@ export const mockEnv = {
   GITHUB_CLIENT_SECRET: 'test-client-secret',
   COOKIE_ENCRYPTION_KEY: 'test-encryption-key',
   DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+  SUPABASE_URL: 'https://test.supabase.co',
+  SUPABASE_ANON_KEY: 'test-anon-key',
   OAUTH_PROVIDER: mockOAuthProvider,
 }

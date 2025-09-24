@@ -69,6 +69,43 @@ export const ExecuteDatabaseSchema = {
     .describe("SQL command to execute (INSERT, UPDATE, DELETE, CREATE, etc.)"),
 };
 
+// Deployment tool schemas
+export const DeployWorkerSchema = {
+  name: z
+    .string()
+    .min(1, "Worker name cannot be empty")
+    .regex(/^[a-zA-Z0-9\-_]+$/, "Worker name can only contain letters, numbers, hyphens, and underscores")
+    .describe("Name of the worker to deploy"),
+  code: z
+    .string()
+    .min(1, "Worker code cannot be empty")
+    .describe("TypeScript/JavaScript code for the worker"),
+  description: z
+    .string()
+    .optional()
+    .describe("Optional description of the worker"),
+};
+
+export const ListWorkersSchema = {};
+
+export const GetWorkerStatusSchema = {
+  name: z
+    .string()
+    .min(1, "Worker name cannot be empty")
+    .describe("Name of the worker to check status for"),
+};
+
+export const DeleteWorkerSchema = {
+  name: z
+    .string()
+    .min(1, "Worker name cannot be empty")
+    .describe("Name of the worker to delete"),
+  confirm: z
+    .boolean()
+    .default(false)
+    .describe("Confirmation flag - must be true to delete the worker"),
+};
+
 // MCP response types
 export interface McpTextContent {
   type: "text";

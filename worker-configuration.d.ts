@@ -14,6 +14,10 @@ declare namespace Cloudflare {
 		NODE_ENV: string;
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MyMCP>;
 		AI: Ai;
+		SUPABASE_URL: string;
+		SUPABASE_ANON_KEY: string;
+		CLOUDFLARE_ACCOUNT_ID: string;
+		CLOUDFLARE_API_TOKEN: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

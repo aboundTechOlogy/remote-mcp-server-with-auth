@@ -1,19 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { 
-	Props, 
-	ListTablesSchema, 
-	QueryDatabaseSchema, 
+import {
+	Props,
+	ListTablesSchema,
+	QueryDatabaseSchema,
 	ExecuteDatabaseSchema,
-	createErrorResponse,
 	createSuccessResponse
 } from "../types";
-import { validateSqlQuery, isWriteOperation, formatDatabaseError } from "../database/security";
-import { withDatabase } from "../database/utils";
+import { validateSqlQuery, isWriteOperation } from "../database/security";
+import { createClient } from '@supabase/supabase-js';
 
 const ALLOWED_USERNAMES = new Set<string>([
-	// Add GitHub usernames of users who should have access to database write operations
-	// For example: 'yourusername', 'coworkerusername'
-	'coleam00'
+    'coleam00',
+    'aboundTechOlogy'
 ]);
 
 export function registerDatabaseTools(server: McpServer, env: Env, props: Props) {
@@ -24,55 +22,88 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 		ListTablesSchema,
 		async () => {
 			try {
-				return await withDatabase((env as any).DATABASE_URL, async (db) => {
-					// Single query to get all table and column information (using your working query)
-					const columns = await db.unsafe(`
-						SELECT 
-							table_name, 
-							column_name, 
-							data_type, 
-							is_nullable,
-							column_default
-						FROM information_schema.columns 
-						WHERE table_schema = 'public' 
-						ORDER BY table_name, ordinal_position
-					`);
-					
-					// Group columns by table
-					const tableMap = new Map();
-					for (const col of columns) {
-						// Use snake_case property names as returned by the SQL query
-						if (!tableMap.has(col.table_name)) {
-							tableMap.set(col.table_name, {
-								name: col.table_name,
-								schema: 'public',
-								columns: []
-							});
-						}
-						tableMap.get(col.table_name).columns.push({
-							name: col.column_name,
-							type: col.data_type,
-							nullable: col.is_nullable === 'YES',
-							default: col.column_default
+				// Validate environment variables
+				const supabaseUrl = env.SUPABASE_URL;
+				const supabaseKey = env.SUPABASE_ANON_KEY;
+
+				console.log('[listTables] Supabase URL exists:', !!supabaseUrl);
+				console.log('[listTables] Supabase Key exists:', !!supabaseKey);
+
+				if (!supabaseUrl || !supabaseKey) {
+					const missing = [];
+					if (!supabaseUrl) missing.push('SUPABASE_URL');
+					if (!supabaseKey) missing.push('SUPABASE_ANON_KEY');
+					console.error('[listTables] Missing environment variables:', missing.join(', '));
+					return {
+						content: [{
+							type: "text" as const,
+							text: `**Error**\n\nSupabase configuration missing. Please set the following environment variables: ${missing.join(', ')}`
+						}]
+					};
+				}
+
+				const supabase = createClient(supabaseUrl, supabaseKey);
+
+				// Use Supabase RPC to get table information from information_schema
+				console.log('[listTables] Calling Supabase RPC: get_table_columns');
+				const { data: columns, error } = await supabase.rpc('get_table_columns');
+
+				if (error) {
+					console.error('[listTables] Supabase RPC error:', error);
+					throw error;
+				}
+
+				if (!columns || !Array.isArray(columns)) {
+					return {
+						content: [{
+							type: "text" as const,
+							text: "**Error**\n\nNo table information available or unexpected response format."
+						}]
+					};
+				}
+
+				// Group columns by table
+				const tableMap = new Map();
+				for (const col of columns) {
+					if (!tableMap.has(col.table_name)) {
+						tableMap.set(col.table_name, {
+							name: col.table_name,
+							schema: 'public',
+							columns: []
 						});
 					}
-					
-					const tableInfo = Array.from(tableMap.values());
-					
-					return {
-						content: [
-							{
-								type: "text",
-								text: `**Database Tables and Schema**\n\n${JSON.stringify(tableInfo, null, 2)}\n\n**Total tables found:** ${tableInfo.length}\n\n**Note:** Use the \`queryDatabase\` tool to run SELECT queries, or \`executeDatabase\` tool for write operations (if you have write access).`
-							}
-						]
-					};
-				});
+					tableMap.get(col.table_name).columns.push({
+						name: col.column_name,
+						type: col.data_type,
+						nullable: col.is_nullable === 'YES',
+						default: col.column_default
+					});
+				}
+
+				const tableInfo = Array.from(tableMap.values());
+
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `**Database Tables and Schema**\n\n${JSON.stringify(tableInfo, null, 2)}\n\n**Total tables found:** ${tableInfo.length}\n\n**Note:** Use the \`queryDatabase\` tool to run SELECT queries, or \`executeDatabase\` tool for write operations (if you have write access).`
+						}
+					]
+				};
 			} catch (error) {
-				console.error('listTables error:', error);
-				return createErrorResponse(
-					`Error retrieving database schema: ${formatDatabaseError(error)}`
-				);
+				console.error('[listTables] Error details:', error);
+				console.error('[listTables] Error type:', typeof error);
+				if (error instanceof Error) {
+					console.error('[listTables] Error message:', error.message);
+					console.error('[listTables] Error stack:', error.stack);
+				}
+				const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+				return {
+					content: [{
+						type: "text" as const,
+						text: `**Error**\n\nError retrieving database schema: ${errorMessage}`
+					}]
+				};
 			}
 		}
 	);
@@ -87,31 +118,77 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 				// Validate the SQL query
 				const validation = validateSqlQuery(sql);
 				if (!validation.isValid) {
-					return createErrorResponse(`Invalid SQL query: ${validation.error}`);
+					return {
+						content: [{
+							type: "text" as const,
+							text: `**Error**\n\nInvalid SQL query: ${validation.error}`
+						}]
+					};
 				}
-				
+
 				// Check if it's a write operation
 				if (isWriteOperation(sql)) {
-					return createErrorResponse(
-						"Write operations are not allowed with this tool. Use the `executeDatabase` tool if you have write permissions (requires special GitHub username access)."
-					);
-				}
-				
-				return await withDatabase((env as any).DATABASE_URL, async (db) => {
-					const results = await db.unsafe(sql);
-					
 					return {
-						content: [
-							{
-								type: "text",
-								text: `**Query Results**\n\`\`\`sql\n${sql}\n\`\`\`\n\n**Results:**\n\`\`\`json\n${JSON.stringify(results, null, 2)}\n\`\`\`\n\n**Rows returned:** ${Array.isArray(results) ? results.length : 1}`
-							}
-						]
+						content: [{
+							type: "text" as const,
+							text: "**Error**\n\nWrite operations are not allowed with this tool. Use the `executeDatabase` tool if you have write permissions (requires special GitHub username access)."
+						}]
 					};
-				});
+				}
+
+				// Validate environment variables
+				const supabaseUrl = env.SUPABASE_URL;
+				const supabaseKey = env.SUPABASE_ANON_KEY;
+
+				console.log('[queryDatabase] Supabase URL exists:', !!supabaseUrl);
+				console.log('[queryDatabase] Supabase Key exists:', !!supabaseKey);
+
+				if (!supabaseUrl || !supabaseKey) {
+					const missing = [];
+					if (!supabaseUrl) missing.push('SUPABASE_URL');
+					if (!supabaseKey) missing.push('SUPABASE_ANON_KEY');
+					console.error('[queryDatabase] Missing environment variables:', missing.join(', '));
+					return {
+						content: [{
+							type: "text" as const,
+							text: `**Error**\n\nSupabase configuration missing. Please set the following environment variables: ${missing.join(', ')}`
+						}]
+					};
+				}
+
+				const supabase = createClient(supabaseUrl, supabaseKey);
+
+				// Execute the SQL query using Supabase RPC
+				console.log('[queryDatabase] Executing SQL query via Supabase RPC:', sql);
+				const { data: results, error } = await supabase.rpc('execute_sql', { query: sql });
+
+				if (error) {
+					console.error('[queryDatabase] Supabase RPC error:', error);
+					throw error;
+				}
+
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `**Query Results**\n\`\`\`sql\n${sql}\n\`\`\`\n\n**Results:**\n\`\`\`json\n${JSON.stringify(results, null, 2)}\n\`\`\`\n\n**Rows returned:** ${Array.isArray(results) ? results.length : 1}`
+						}
+					]
+				};
 			} catch (error) {
-				console.error('queryDatabase error:', error);
-				return createErrorResponse(`Database query error: ${formatDatabaseError(error)}`);
+				console.error('[queryDatabase] Error details:', error);
+				console.error('[queryDatabase] Error type:', typeof error);
+				if (error instanceof Error) {
+					console.error('[queryDatabase] Error message:', error.message);
+					console.error('[queryDatabase] Error stack:', error.stack);
+				}
+				const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+				return {
+					content: [{
+						type: "text" as const,
+						text: `**Error**\n\nDatabase query error: ${errorMessage}`
+					}]
+				};
 			}
 		}
 	);
@@ -127,27 +204,73 @@ export function registerDatabaseTools(server: McpServer, env: Env, props: Props)
 					// Validate the SQL query
 					const validation = validateSqlQuery(sql);
 					if (!validation.isValid) {
-						return createErrorResponse(`Invalid SQL statement: ${validation.error}`);
-					}
-					
-					return await withDatabase((env as any).DATABASE_URL, async (db) => {
-						const results = await db.unsafe(sql);
-						
-						const isWrite = isWriteOperation(sql);
-						const operationType = isWrite ? "Write Operation" : "Read Operation";
-						
 						return {
-							content: [
-								{
-									type: "text",
-									text: `**${operationType} Executed Successfully**\n\`\`\`sql\n${sql}\n\`\`\`\n\n**Results:**\n\`\`\`json\n${JSON.stringify(results, null, 2)}\n\`\`\`\n\n${isWrite ? '**⚠️ Database was modified**' : `**Rows returned:** ${Array.isArray(results) ? results.length : 1}`}\n\n**Executed by:** ${props.login} (${props.name})`
-								}
-							]
+						content: [{
+							type: "text" as const,
+							text: `**Error**\n\nInvalid SQL statement: ${validation.error}`
+						}]
+					};
+					}
+
+					// Validate environment variables
+					const supabaseUrl = env.SUPABASE_URL;
+					const supabaseKey = env.SUPABASE_ANON_KEY;
+
+					console.log('[executeDatabase] Supabase URL exists:', !!supabaseUrl);
+					console.log('[executeDatabase] Supabase Key exists:', !!supabaseKey);
+
+					if (!supabaseUrl || !supabaseKey) {
+						const missing = [];
+						if (!supabaseUrl) missing.push('SUPABASE_URL');
+						if (!supabaseKey) missing.push('SUPABASE_ANON_KEY');
+						console.error('[executeDatabase] Missing environment variables:', missing.join(', '));
+						return {
+							content: [{
+								type: "text" as const,
+								text: `**Error**\n\nSupabase configuration missing. Please set the following environment variables: ${missing.join(', ')}`
+							}]
 						};
-					});
+					}
+
+					const supabase = createClient(supabaseUrl, supabaseKey);
+
+					// Execute the SQL statement using Supabase RPC
+					console.log('[executeDatabase] Executing SQL statement via Supabase RPC:', sql);
+					const { data: results, error } = await supabase.rpc('execute_sql', { query: sql });
+
+					if (error) {
+						console.error('[executeDatabase] Supabase RPC error:', error);
+						throw error;
+					}
+
+					const isWrite = isWriteOperation(sql);
+					const operationType = isWrite ? "Write Operation" : "Read Operation";
+
+					// Log the operation for audit purposes
+					console.log(`Database ${operationType.toLowerCase()} executed by ${props.login} (${props.name}): ${sql}`);
+
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `**${operationType} Executed Successfully**\n\`\`\`sql\n${sql}\n\`\`\`\n\n**Results:**\n\`\`\`json\n${JSON.stringify(results, null, 2)}\n\`\`\`\n\n${isWrite ? '**⚠️ Database was modified**' : `**Rows returned:** ${Array.isArray(results) ? results.length : 1}`}\n\n**Executed by:** ${props.login} (${props.name})`
+							}
+						]
+					};
 				} catch (error) {
-					console.error('executeDatabase error:', error);
-					return createErrorResponse(`Database execution error: ${formatDatabaseError(error)}`);
+					console.error('[executeDatabase] Error details:', error);
+					console.error('[executeDatabase] Error type:', typeof error);
+					if (error instanceof Error) {
+						console.error('[executeDatabase] Error message:', error.message);
+						console.error('[executeDatabase] Error stack:', error.stack);
+					}
+					const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+					return {
+						content: [{
+							type: "text" as const,
+							text: `**Error**\n\nDatabase execution error: ${errorMessage}`
+						}]
+					};
 				}
 			}
 		);
