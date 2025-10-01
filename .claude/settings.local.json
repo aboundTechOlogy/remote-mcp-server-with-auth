@@ -5,7 +5,17 @@
       "Bash(mv:*)",
       "Bash(npm run type-check:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm test)"
+      "Bash(npm test)",
+      "Bash(env)",
+      "Read(//home/dreww/**)",
+      "Bash(npx mcp-remote:*)",
+      "Bash(wrangler deployments list:*)",
+      "Bash(wrangler whoami:*)",
+      "mcp__ide__executeCode",
+      "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
